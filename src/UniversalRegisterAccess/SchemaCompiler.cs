@@ -16,14 +16,25 @@ public static class SchemaCompiler
         return (CppGenerator.Generate(regions), TsGenerator.Generate(regions), OpcUaGenerator.Generate(regions));
     }
 
-    /// <summary>Like <see cref="Generate"/>, but also writes the three results to disk (creating
-    /// parent directories as needed).</summary>
-    public static void Compile(IReadOnlyList<string> sourceFiles, string modbusCppOutputFilePath, string tsOutputFilePath, string opcUaCppOutputFilePath)
+    /// <summary>Markdown overview of the complete register map (documentation only).</summary>
+    public static string GenerateMarkdown(IReadOnlyList<string> sourceFiles)
     {
-        var (cpp, ts, opcua) = Generate(sourceFiles);
-        WriteFile(modbusCppOutputFilePath, cpp);
-        WriteFile(tsOutputFilePath, ts);
-        WriteFile(opcUaCppOutputFilePath, opcua);
+        var regions = SchemaParser.Parse(sourceFiles);
+        AddressAssignment.Assign(regions);
+        return MarkdownGenerator.Generate(regions);
+    }
+
+    /// <summary>Like <see cref="Generate"/>, but also writes the three results to disk (creating
+    /// parent directories as needed). <paramref name="markdownOutputFilePath"/> optionally adds the
+    /// Markdown register overview.</summary>
+    public static void Compile(IReadOnlyList<string> sourceFiles, string modbusCppOutputFilePath, string tsOutputFilePath, string opcUaCppOutputFilePath, string? markdownOutputFilePath = null)
+    {
+        var regions = SchemaParser.Parse(sourceFiles);
+        AddressAssignment.Assign(regions);
+        WriteFile(modbusCppOutputFilePath, CppGenerator.Generate(regions));
+        WriteFile(tsOutputFilePath, TsGenerator.Generate(regions));
+        WriteFile(opcUaCppOutputFilePath, OpcUaGenerator.Generate(regions));
+        if (markdownOutputFilePath is not null) WriteFile(markdownOutputFilePath, MarkdownGenerator.Generate(regions));
     }
 
     private static void WriteFile(string path, string content)

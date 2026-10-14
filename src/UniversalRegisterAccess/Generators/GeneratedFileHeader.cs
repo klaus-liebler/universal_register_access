@@ -11,4 +11,9 @@ internal static class GeneratedFileHeader
         // GENERIERT von UniversalRegisterAccess -- nicht von Hand editieren. Aenderungen gehoeren in
         // die jeweilige Schema-*.cs-Datei, anschliessend die Codegenerierung erneut ausfuehren.
         """;
+
+    public const string PlainText = """
+        GENERIERT von UniversalRegisterAccess -- nicht von Hand editieren. Aenderungen gehoeren in
+        die jeweilige Schema-*.cs-Datei, anschliessend die Codegenerierung erneut ausfuehren.
+        """;
 }
