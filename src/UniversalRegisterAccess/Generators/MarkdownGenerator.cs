@@ -14,7 +14,7 @@ public static class MarkdownGenerator
         sb.Append("<!-- ").Append(GeneratedFileHeader.PlainText.ReplaceLineEndings(" ")).Append(" -->\n\n");
         sb.Append("# Modbus-Register\n\n");
         sb.Append("Input-Register (nur lesen): Funktionscode 04. Holding-Register (lesen/schreiben): Funktionscodes 03/06/16. ");
-        sb.Append("Adressen sind 0-basiert (PDU-Adresse). Mehrwort-Werte belegen aufeinanderfolgende Register.\n\n");
+        sb.Append("Adressen sind 0-basiert (PDU-Adresse). Mehrwort-Werte belegen aufeinanderfolgende Register").Append(ByteOrderRef).Append(".\n\n");
 
         var all = regions.SelectMany(r => r.Registers.Select(reg => (Region: r, Reg: reg))).ToList();
         var inputCount = all.Count(x => x.Reg.Access == Access.ReadOnly);
@@ -63,7 +63,45 @@ public static class MarkdownGenerator
             }
         }
 
+        AppendByteOrderFootnote(sb, all.Select(x => x.Reg).ToList());
+
         return sb.ToString().TrimEnd('\n') + "\n";
+    }
+
+    private const string ByteOrderRef = "[^byteorder]";
+
+    // Muss zu CppGenerator/OpcUaGenerator passen: High-Word auf der niedrigeren Adresse, und der
+    // Modbus-Server serialisiert jedes Register High-Byte zuerst (Modbus-Standard).
+    private static void AppendByteOrderFootnote(StringBuilder sb, IReadOnlyList<RegisterDef> regs)
+    {
+        sb.Append(ByteOrderRef).Append(": Byte-Order durchgehend Big-Endian (\"ABCD\"): Jedes Register wird High-Byte zuerst ");
+        sb.Append("uebertragen (Modbus-Standard), und bei 32-Bit-Werten liegt das hoeherwertige Wort (High-Word) auf der ");
+        sb.Append("niedrigeren Adresse, das niederwertige Wort (Low-Word) auf der Adresse +1. Vorzeichenbehaftete Werte (int32) ");
+        sb.Append("sind im Zweierkomplement codiert. Structs bestehen aus 32-Bit-Feldern in Deklarationsreihenfolge, jedes Feld ");
+        sb.Append("ebenfalls High-Word zuerst.\n");
+
+        var example = regs.Where(r => r.ValueKind == RegisterValueKind.Int32).OrderBy(r => r.Access).ThenBy(r => r.Address).FirstOrDefault()
+            ?? regs.Where(r => r.ValueKind == RegisterValueKind.UInt32).OrderBy(r => r.Access).ThenBy(r => r.Address).FirstOrDefault();
+        if (example is null) return;
+
+        var signed = example.ValueKind == RegisterValueKind.Int32;
+        var value = signed ? -100000 : 100000;
+        var raw = unchecked((uint)value);
+        var hi = (ushort)(raw >> 16);
+        var lo = (ushort)raw;
+        var fc = example.Access == Access.ReadOnly ? "FC04" : "FC03";
+        var bank = example.Access == Access.ReadOnly ? "Input" : "Holding";
+        var name = Naming.ScreamingSnake(example.Name);
+        var type = signed ? "int32" : "uint32";
+
+        sb.Append('\n');
+        sb.Append($"    Beispiel: `{name}` ({type}, {bank}-Register {example.Address}..{example.Address + 1}) mit dem Wert {value} = 0x{raw:X8}");
+        sb.Append(signed ? " (Zweierkomplement)" : "").Append(":\n\n");
+        sb.Append($"    - Register {example.Address} (High-Word) = 0x{hi:X4}, Register {example.Address + 1} (Low-Word) = 0x{lo:X4}\n");
+        sb.Append($"    - Datenbytes in der {fc}-Antwort (ab Startadresse {example.Address}, Anzahl 2): `{hi >> 8:X2} {hi & 0xFF:X2} {lo >> 8:X2} {lo & 0xFF:X2}`\n");
+        sb.Append($"    - Zusammensetzen: `(0x{hi:X4} << 16) | 0x{lo:X4}` = 0x{raw:X8}");
+        sb.Append(signed ? $", als int32 interpretiert {value}\n" : $" = {value}\n");
+        sb.Append("    - Bei Clients mit einstellbarer Wort-Reihenfolge (z. B. \"Word Swap\"/\"CDAB\") also KEINEN Wort-Tausch waehlen.\n");
     }
 
     private static string Range(IEnumerable<(RegionDef Region, RegisterDef Reg)> all, Access access)
@@ -82,10 +120,10 @@ public static class MarkdownGenerator
     {
         RegisterValueKind.UInt16 => "uint16",
         RegisterValueKind.Int16 => "int16",
-        RegisterValueKind.UInt32 => "uint32",
-        RegisterValueKind.Int32 => "int32",
+        RegisterValueKind.UInt32 => "uint32" + ByteOrderRef,
+        RegisterValueKind.Int32 => "int32" + ByteOrderRef,
         RegisterValueKind.Bitfield => $"Bitfeld ({reg.Bitfield!.Name})",
-        RegisterValueKind.Struct => $"Struct ({reg.Struct!.Name})",
+        RegisterValueKind.Struct => $"Struct ({reg.Struct!.Name}){ByteOrderRef}",
         _ => reg.ValueKind.ToString(),
     };
 
