@@ -31,7 +31,7 @@ public static class MarkdownGenerator
             sb.Append("|---|---|---:|---:|---|---|---:|---:|---|---|---|---|\n");
             foreach (var reg in region.Registers)
             {
-                sb.Append($"| `{Naming.ScreamingSnake(reg.Name)}` | {Bank(reg)} | {AddressText(reg)} | {reg.WordCount} | {TypeText(reg)} | {Cell(reg.Unit)} | {reg.Min?.ToString() ?? ""} | {reg.Max?.ToString() ?? ""} | {reg.Display} | {Cell(Hardware(reg))} | ns=1;i={reg.NodeId} | {Cell(reg.Description)} |\n");
+                sb.Append($"| `{Naming.Snake(reg.Name)}` | {Bank(reg)} | {AddressText(reg)} | {reg.WordCount} | {TypeText(reg)} | {Cell(reg.Unit)} | {reg.Min?.ToString() ?? ""} | {reg.Max?.ToString() ?? ""} | {reg.Display} | {Cell(Hardware(reg))} | ns=1;i={reg.NodeId} | {Cell(reg.Description)} |\n");
             }
             sb.Append('\n');
         }
@@ -44,7 +44,7 @@ public static class MarkdownGenerator
             sb.Append("| Adresse | Worte | Gruppe | Bezeichnung | Typ | Einheit |\n|---:|---:|---|---|---|---|\n");
             foreach (var (region, reg) in regs)
             {
-                sb.Append($"| {AddressText(reg)} | {reg.WordCount} | {Cell(region.Title ?? region.Name)} | `{Naming.ScreamingSnake(reg.Name)}` | {TypeText(reg)} | {Cell(reg.Unit)} |\n");
+                sb.Append($"| {AddressText(reg)} | {reg.WordCount} | {Cell(region.Title ?? region.Name)} | `{Naming.Snake(reg.Name)}` | {TypeText(reg)} | {Cell(reg.Unit)} |\n");
             }
             sb.Append('\n');
         }
@@ -91,7 +91,7 @@ public static class MarkdownGenerator
         var lo = (ushort)raw;
         var fc = example.Access == Access.ReadOnly ? "FC04" : "FC03";
         var bank = example.Access == Access.ReadOnly ? "Input" : "Holding";
-        var name = Naming.ScreamingSnake(example.Name);
+        var name = Naming.Snake(example.Name);
         var type = signed ? "int32" : "uint32";
 
         sb.Append('\n');

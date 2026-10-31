@@ -29,5 +29,8 @@ internal static class Naming
         return sb.ToString();
     }
 
+    // "ChipId" -> "chip_id": the C++ naming of rtoos.
+    public static string Snake(string pascal) => ScreamingSnake(pascal).ToLowerInvariant();
+
     public static string CamelCase(string pascal) => pascal.Length == 0 ? pascal : char.ToLowerInvariant(pascal[0]) + pascal[1..];
 }
