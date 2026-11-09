@@ -6,6 +6,12 @@ namespace UniversalRegisterAccess;
 
 public enum Access { ReadOnly, ReadWrite }
 
+/// <summary>The class of a holding register (ReadWrite), for a controller that owns the outputs (an IEC
+/// 61131-3 program): Output = a level it writes every cycle (valve, PWM, target position); Command = a
+/// handshake the firmware answers in the same register (start homing: 1, answer 0/2/3) - written only
+/// on an edge, never cyclically; Parameter = a configuration value that stays writable from outside.</summary>
+public enum RegisterKind { Output, Command, Parameter }
+
 /// <summary>Marks a class as one region (a named group of registers). Registers inside get consecutive
 /// addresses (per Access -- ReadOnly/Input and ReadWrite/Holding are independent address sequences)
 /// following declaration order across ALL region files, unless pinned via <see cref="ModbusMappingAttribute"/>.</summary>
@@ -33,6 +39,8 @@ public sealed class ModbusRegisterAttribute(Access access) : Attribute
     // "status"/"range"); default is "decimal", except a [ModbusType] bitfield-enum field which defaults
     // to "binary".
     public string? Display { get; init; }
+    // Holding registers only (Access.ReadWrite); default Output.
+    public RegisterKind Kind { get; init; } = RegisterKind.Output;
 }
 
 /// <summary>Pins a fixed, explicit Modbus address instead of letting it be auto-assigned from

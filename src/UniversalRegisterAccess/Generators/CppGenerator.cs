@@ -40,6 +40,10 @@ public static class CppGenerator
         sb.Append("/// Table sizes: rtos::modbus::RegisterBank<holding_count, input_count, Guard>.\n");
         sb.Append($"inline constexpr std::size_t input_count = {inputCount};\n");
         sb.Append($"inline constexpr std::size_t holding_count = {holdingCount};\n\n");
+        AppendKinds(sb, regions);
+        sb.Append("/// CRC-32 of the map's layout (bank, address, width, name, signedness, bool, class per register):\n");
+        sb.Append("/// equal to REGISTER_MAP_HASH in register-map.ts - a client's bindings were made for this map.\n");
+        sb.Append($"inline constexpr std::uint32_t map_hash = 0x{MapHash.Compute(regions):X8}u;\n\n");
 
         foreach (var s in DistinctStructTypes(regions))
         {
@@ -139,12 +143,43 @@ public static class CppGenerator
         }
     }
 
+    // The class of every holding register word (Kind in the schema): output unless listed.
+    private static void AppendKinds(StringBuilder sb, IReadOnlyList<RegionDef> regions)
+    {
+        sb.Append("/// The class of a holding register: output (a level, written cyclically), command (a handshake the\n");
+        sb.Append("/// firmware answers in the register), parameter (configuration, writable from outside).\n");
+        sb.Append("enum class RegisterKind : std::uint8_t { output, command, parameter };\n");
+        sb.Append("[[nodiscard]] constexpr RegisterKind holding_kind(std::uint16_t address) noexcept {\n");
+        var special = regions.SelectMany(r => r.Registers)
+            .Where(r => r.Access == Access.ReadWrite && r.Kind != RegisterKind.Output)
+            .OrderBy(r => r.Address).ToList();
+        if (special.Count == 0)
+        {
+            sb.Append("    (void)address;\n    return RegisterKind::output;\n}\n\n");
+            return;
+        }
+        sb.Append("    switch (address) {\n");
+        foreach (var group in special.GroupBy(r => r.Kind))
+        {
+            foreach (var reg in group)
+            {
+                for (var w = 0; w < reg.WordCount; w++)
+                {
+                    sb.Append($"        case {reg.Address + w}:  // {Naming.Snake(reg.Name)}\n");
+                }
+            }
+            sb.Append($"            return RegisterKind::{group.Key.ToString().ToLowerInvariant()};\n");
+        }
+        sb.Append("        default:\n            return RegisterKind::output;\n    }\n}\n\n");
+    }
+
     private static string BuildComment(RegisterDef reg)
     {
         var parts = new List<string>();
         if (reg.Description is not null) parts.Add(reg.Description);
         if (reg.Unit is not null) parts.Add($"[{reg.Unit}]");
         if (reg.IsSigned) parts.Add("signed");
+        if (reg.Kind != RegisterKind.Output) parts.Add(reg.Kind.ToString().ToLowerInvariant());
         if (reg.Gpio is not null) parts.Add(reg.Gpio);
         if (reg.I2cBus is not null) parts.Add(reg.I2cIrqPin is not null ? $"{reg.I2cBus}, IRQ {reg.I2cIrqPin}" : reg.I2cBus);
         return string.Join(" -- ", parts);

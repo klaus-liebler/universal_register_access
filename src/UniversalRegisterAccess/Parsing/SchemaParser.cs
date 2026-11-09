@@ -178,6 +178,11 @@ public static class SchemaParser
         var min = AttributeHelpers.GetIntArgument(regArgs, "Min");
         var max = AttributeHelpers.GetIntArgument(regArgs, "Max");
         var display = AttributeHelpers.GetStringArgument(regArgs, "Display");
+        var kind = AttributeHelpers.GetEnumArgument<RegisterKind>(regArgs, "Kind");
+        if (kind is not null && access == Access.ReadOnly)
+        {
+            throw new SchemaException($"{fieldLabel}: \"Kind\" gilt nur fuer Holding-Register (Access.ReadWrite).");
+        }
 
         int? pinnedAddress = null;
         if (fieldDecl.FindAttribute("ModbusMapping") is { } mappingAttr)
@@ -229,6 +234,7 @@ public static class SchemaParser
             Min = min == int.MinValue ? null : min,
             Max = max == int.MinValue ? null : max,
             DisplayOverride = display,
+            Kind = kind ?? RegisterKind.Output,
         };
     }
 

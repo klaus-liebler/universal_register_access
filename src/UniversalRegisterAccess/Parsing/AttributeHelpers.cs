@@ -85,6 +85,23 @@ internal static class AttributeHelpers
         return access;
     }
 
+    // Kind = RegisterKind.Command -- an optional enum argument, matched by identifier text.
+    public static TEnum? GetEnumArgument<TEnum>(Dictionary<string, ExpressionSyntax> args, string name) where TEnum : struct, Enum
+    {
+        if (!args.TryGetValue(name, out var expr)) return null;
+        var text = expr switch
+        {
+            MemberAccessExpressionSyntax m => m.Name.Identifier.Text,
+            IdentifierNameSyntax id => id.Identifier.Text,
+            _ => throw new SchemaException($"UniversalRegisterAccess: Attribut-Argument \"{name}\" konnte nicht gelesen werden: \"{expr}\"."),
+        };
+        if (!Enum.TryParse<TEnum>(text, out var value))
+        {
+            throw new SchemaException($"UniversalRegisterAccess: unbekannter {typeof(TEnum).Name}-Wert \"{text}\" (gueltig: {string.Join("/", Enum.GetNames<TEnum>())}).");
+        }
+        return value;
+    }
+
     private static int EvaluateIntLiteral(ExpressionSyntax expr, string name) => expr switch
     {
         LiteralExpressionSyntax { Token.Value: int i } => i,

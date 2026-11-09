@@ -17,12 +17,14 @@ public static class TsGenerator
         sb.Append(GeneratedFileHeader.TsText);
         sb.Append("\n\n");
         sb.Append("export type RegisterBank = \"input\" | \"holding\";\n");
+        sb.Append("/** Holding registers: output (default, a level), command (a handshake the firmware answers), parameter. */\n");
+        sb.Append("export type RegisterKind = \"output\" | \"command\" | \"parameter\";\n");
         sb.Append("export type RegisterDisplay = \"decimal\" | \"hex\" | \"binary\" | \"bool\" | \"bool-error\" | \"status\" | \"range\";\n\n");
         sb.Append("export interface RegisterDef {\n");
         sb.Append("    name: string;\n    address: number;\n    bank: RegisterBank;\n    display: RegisterDisplay;\n");
         sb.Append("    description?: string;\n    unit?: string;\n    signed?: boolean;\n    gpio?: string;\n");
         sb.Append("    i2c?: { bus: string; irqPin?: string };\n    min?: number;\n    max?: number;\n");
-        sb.Append("    combine?: { count: number };\n}\n\n");
+        sb.Append("    combine?: { count: number };\n    /** holding registers; absent: output */\n    kind?: RegisterKind;\n}\n\n");
         sb.Append("export interface RegisterRegion {\n    title: string;\n    registers: RegisterDef[];\n}\n\n");
 
         var nonEmptyRegions = regions.Where(r => r.Registers.Count > 0).ToList();
@@ -34,6 +36,8 @@ public static class TsGenerator
         var holdingMax = MaxAddressExclusive(regions, Access.ReadWrite);
         sb.Append($"export const INPUT_REGISTER_COUNT = {inputMax};\n");
         sb.Append($"export const HOLDING_REGISTER_COUNT = {holdingMax};\n");
+        sb.Append("/** CRC-32 of the map's layout; equal to register_map::map_hash in the firmware. */\n");
+        sb.Append($"export const REGISTER_MAP_HASH = 0x{MapHash.Compute(regions):X8};\n");
         return sb.ToString();
     }
 
@@ -75,6 +79,7 @@ public static class TsGenerator
         if (reg.Max is not null) fields.Add($"max: {reg.Max}");
         fields.Add($"display: {Str(reg.Display)}");
         if (reg.WordCount > 1) fields.Add($"combine: {{ count: {reg.WordCount} }}");
+        if (reg.Kind != RegisterKind.Output) fields.Add($"kind: {Str(reg.Kind.ToString().ToLowerInvariant())}");
         return $"{{ {string.Join(", ", fields)} }}";
     }
 

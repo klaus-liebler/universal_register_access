@@ -40,6 +40,7 @@ public sealed class RegisterDef
     public int? Min { get; init; }
     public int? Max { get; init; }
     public string? DisplayOverride { get; init; }
+    public RegisterKind Kind { get; init; } = RegisterKind.Output; // holding registers only
 
     public bool IsSigned => ValueKind is RegisterValueKind.Int16 or RegisterValueKind.Int32;
 

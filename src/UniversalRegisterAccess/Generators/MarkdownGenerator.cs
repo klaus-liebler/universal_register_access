@@ -111,7 +111,8 @@ public static class MarkdownGenerator
         return $"{regs.Min(r => r.Address)}..{regs.Max(r => r.Address + r.WordCount - 1)}";
     }
 
-    private static string Bank(RegisterDef reg) => reg.Access == Access.ReadOnly ? "Input (R)" : "Holding (R/W)";
+    private static string Bank(RegisterDef reg) => reg.Access == Access.ReadOnly ? "Input (R)"
+        : reg.Kind == RegisterKind.Output ? "Holding (R/W)" : $"Holding (R/W, {reg.Kind})";
 
     private static string AddressText(RegisterDef reg) =>
         reg.WordCount > 1 ? $"{reg.Address}..{reg.Address + reg.WordCount - 1}" : reg.Address.ToString();
