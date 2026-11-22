@@ -1,3 +1,4 @@
+using System.Security;
 using System.Text;
 using UniversalRegisterAccess.Model;
 
@@ -16,7 +17,9 @@ public sealed record EtherCatOptions(
     ushort MailboxInStart,
     ushort MailboxInSize,
     ushort OutputsStart,
-    ushort InputsStart);
+    ushort InputsStart,
+    byte PdiControl,          // the ESC's PDI type (SII configuration area, ESI ConfigData)
+    string TypeName);         // the ESI device type name (no spaces)
 
 /// <summary>Generates the CoE object dictionary of the register map for rtoos
 /// (register_map_ethercat.hpp, rtos/ethercat/object_dictionary.hpp): one object per region and
@@ -27,17 +30,28 @@ public sealed record EtherCatOptions(
 /// class (pinned addresses do not move when a region is added):
 ///   inputs 6000h + address (TxPDO 1A00h + address), outputs 7000h + address (RxPDO 1600h + address),
 ///   parameters 8000h + address, commands 2000h + address (SDO only: an edge, never cyclic)
-/// Subindex n = the n-th register of the class in the region (declaration order).</summary>
+/// Subindex n = the n-th register of the class in the region (declaration order). A struct register
+/// (an octet string, e.g. a chip ID) is SDO only: no PDO entry.
+///
+/// GenerateEsi() writes the EtherCAT Slave Information (ETG.2000) of the same model: identity, mailbox,
+/// SyncManagers, FMMUs, every PDO (fixed, assigned by default, the assignment selectable: PdoAssign).</summary>
 public static class EtherCatGenerator
 {
     public enum Class { Input, Output, Parameter, Command }
 
-    public sealed record Entry(int SubIndex, RegisterDef Register, string DataType, int Bits);
+    public sealed record Entry(int SubIndex, RegisterDef Register, string DataType, int Bits)
+    {
+        public bool Mappable => DataType != "octet_string";
+    }
     public sealed record Obj(int Index, Class Class, RegionDef Region, IReadOnlyList<Entry> Entries)
     {
         public string Name => $"{Region.Title ?? Region.Name} ({ClassName(Class)})";
     }
-    public sealed record Pdo(int Index, bool Tx, Obj Source);
+    public sealed record Pdo(int Index, bool Tx, Obj Source)
+    {
+        public IEnumerable<Entry> Entries => Source.Entries.Where(e => e.Mappable);
+        public string Name => $"{(Tx ? "TxPDO" : "RxPDO")} {Source.Region.Title ?? Source.Region.Name}";
+    }
 
     public static string ClassName(Class c) => c switch
     {
@@ -77,13 +91,12 @@ public static class EtherCatGenerator
                 var entries = regs.Select((r, i) =>
                 {
                     var (type, bits) = TypeOf(r);
-                    if (bits > 255) throw new SchemaException($"EtherCAT: Register \"{r.Name}\" hat {bits} Bit - mehr als ein PDO-Eintrag fasst (255).");
                     return new Entry(i + 1, r, type, bits);
                 }).ToList();
                 objects.Add(new Obj(Base(cls) + regs.Min(r => r.Address), cls, region, entries));
             }
         }
-        var pdos = objects.Where(o => o.Class is Class.Input or Class.Output)
+        var pdos = objects.Where(o => o.Class is Class.Input or Class.Output && o.Entries.Any(e => e.Mappable))
             .Select(o => new Pdo((o.Class == Class.Input ? 0x1A00 : 0x1600) + (o.Index & 0x0FFF), o.Class == Class.Input, o))
             .ToList();
         var all = objects.Select(o => o.Index).Concat(pdos.Select(p => p.Index)).ToList();
@@ -123,6 +136,7 @@ public static class EtherCatGenerator
         sb.Append($"inline constexpr std::uint32_t vendor_id = 0x{options.VendorId:X8}, product_code = 0x{options.ProductCode:X8}, revision = 0x{options.Revision:X8};\n");
         sb.Append($"inline constexpr char device_name[] = {Str(options.Name)};\n");
         sb.Append($"inline constexpr char group_name[] = {Str(options.Group)};\n");
+        sb.Append($"inline constexpr std::uint8_t pdi_control = 0x{options.PdiControl:X2};\n");
         sb.Append($"inline constexpr ec::SlaveLayout layout{{.mailbox_out_start = 0x{options.MailboxOutStart:X4}, .mailbox_out_size = {options.MailboxOutSize}, " +
                   $".mailbox_in_start = 0x{options.MailboxInStart:X4}, .mailbox_in_size = {options.MailboxInSize}, " +
                   $".outputs_start = 0x{options.OutputsStart:X4}, .inputs_start = 0x{options.InputsStart:X4}}};\n\n");
@@ -133,10 +147,11 @@ public static class EtherCatGenerator
             sb.Append($"    ec::count_entry({o.Entries.Count}),\n");
             foreach (var e in o.Entries)
             {
-                var access = o.Class switch
+                var access = (o.Class, e.Mappable) switch
                 {
-                    Class.Input => "ec::access::read | ec::access::txpdo",
-                    Class.Output => "ec::access::read_write | ec::access::rxpdo",
+                    (Class.Input, true) => "ec::access::read | ec::access::txpdo",
+                    (Class.Input, false) => "ec::access::read",
+                    (Class.Output, true) => "ec::access::read_write | ec::access::rxpdo",
                     _ => "ec::access::read_write",
                 };
                 var source = o.Class == Class.Input ? "ec::Source::input" : "ec::Source::holding";
@@ -148,17 +163,18 @@ public static class EtherCatGenerator
         }
         foreach (var p in pdos)
         {
-            sb.Append($"inline constexpr std::array<ec::OdEntry, {p.Source.Entries.Count + 1}> entries_{p.Index:x4}{{{{\n");
-            sb.Append($"    ec::count_entry({p.Source.Entries.Count}),\n");
-            foreach (var e in p.Source.Entries)
+            var mapped = p.Entries.ToList();
+            sb.Append($"inline constexpr std::array<ec::OdEntry, {mapped.Count + 1}> entries_{p.Index:x4}{{{{\n");
+            sb.Append($"    ec::count_entry({mapped.Count}),\n");
+            foreach (var (e, k) in mapped.Select((e, k) => (e, k + 1)))
             {
-                sb.Append($"    ec::OdEntry{{.subindex = {e.SubIndex}, .data_type = ec::dtype::uint32, .bits = 32, " +
-                          $".value = ec::pdo_mapping(0x{p.Source.Index:X4}, {e.SubIndex}, {e.Bits}), .name = \"SubIndex {e.SubIndex:D3}\"}},\n");
+                sb.Append($"    ec::OdEntry{{.subindex = {k}, .data_type = ec::dtype::uint32, .bits = 32, " +
+                          $".value = ec::pdo_mapping(0x{p.Source.Index:X4}, {e.SubIndex}, {e.Bits}), .name = \"SubIndex {k:D3}\"}},\n");
             }
             sb.Append("}};\n");
         }
 
-        var all = objects.Select(o => (o.Index, Name: o.Name)).Concat(pdos.Select(p => (p.Index, Name: $"{(p.Tx ? "TxPDO" : "RxPDO")} {p.Source.Region.Title ?? p.Source.Region.Name}")))
+        var all = objects.Select(o => (o.Index, Name: o.Name)).Concat(pdos.Select(p => (p.Index, Name: p.Name)))
             .OrderBy(x => x.Index).ToList();
         sb.Append($"\n/// The application's objects (sorted by index).\n");
         sb.Append($"inline constexpr std::array<ec::OdObject, {all.Count}> objects{{{{\n");
@@ -168,9 +184,65 @@ public static class EtherCatGenerator
         }
         sb.Append("}};\n\n");
         sb.Append($"/// Process data of the default assignment (every PDO): RxPDO and TxPDO bytes.\n");
-        sb.Append($"inline constexpr std::uint16_t default_outputs_bytes = {pdos.Where(p => !p.Tx).Sum(p => p.Source.Entries.Sum(e => e.Bits)) / 8}, " +
-                  $"default_inputs_bytes = {pdos.Where(p => p.Tx).Sum(p => p.Source.Entries.Sum(e => e.Bits)) / 8};\n\n");
+        sb.Append($"inline constexpr std::uint16_t default_outputs_bytes = {Bytes(pdos, false)}, default_inputs_bytes = {Bytes(pdos, true)};\n\n");
         sb.Append("}  // namespace register_map::ethercat\n");
+        return sb.ToString();
+    }
+
+    private static int Bytes(IEnumerable<Pdo> pdos, bool tx) => pdos.Where(p => p.Tx == tx).Sum(p => p.Entries.Sum(e => e.Bits)) / 8;
+
+    private static string EsiType(string dataType) => dataType switch
+    {
+        "uint16" => "UINT",
+        "int16" => "INT",
+        "uint32" => "UDINT",
+        "int32" => "DINT",
+        _ => "",
+    };
+
+    private static string X(string s) => SecurityElement.Escape(s) ?? "";
+    private static string Hex(long v, int digits) => "#x" + v.ToString($"X{digits}");
+
+    /// <summary>The ESI (ETG.2000) of the device: copy it into TwinCAT's Config\Io\EtherCAT.</summary>
+    public static string GenerateEsi(IReadOnlyList<RegionDef> regions, EtherCatOptions o)
+    {
+        var (_, pdos) = Model(regions);
+        var sb = new StringBuilder();
+        sb.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
+        sb.Append("<!-- GENERIERT von UniversalRegisterAccess (EtherCatGenerator): nicht von Hand editieren. -->\n");
+        sb.Append("<EtherCATInfo xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" Version=\"1.6\">\n");
+        sb.Append($"  <Vendor>\n    <Id>{Hex(o.VendorId, 8)}</Id>\n    <Name>{X(o.Group)}</Name>\n  </Vendor>\n");
+        sb.Append("  <Descriptions>\n");
+        sb.Append($"    <Groups>\n      <Group>\n        <Type>{X(o.Group)}</Type>\n        <Name>{X(o.Group)}</Name>\n      </Group>\n    </Groups>\n");
+        sb.Append("    <Devices>\n");
+        sb.Append("      <Device Physics=\"YY\">\n");
+        sb.Append($"        <Type ProductCode=\"{Hex(o.ProductCode, 8)}\" RevisionNo=\"{Hex(o.Revision, 8)}\">{X(o.TypeName)}</Type>\n");
+        sb.Append($"        <Name>{X(o.Name)}</Name>\n");
+        sb.Append($"        <GroupType>{X(o.Group)}</GroupType>\n");
+        sb.Append("        <Fmmu>Outputs</Fmmu>\n        <Fmmu>Inputs</Fmmu>\n        <Fmmu>MBoxState</Fmmu>\n");
+        sb.Append($"        <Sm MinSize=\"34\" MaxSize=\"{o.MailboxOutSize}\" DefaultSize=\"{o.MailboxOutSize}\" StartAddress=\"{Hex(o.MailboxOutStart, 4)}\" ControlByte=\"#x26\" Enable=\"1\">MBoxOut</Sm>\n");
+        sb.Append($"        <Sm MinSize=\"34\" MaxSize=\"{o.MailboxInSize}\" DefaultSize=\"{o.MailboxInSize}\" StartAddress=\"{Hex(o.MailboxInStart, 4)}\" ControlByte=\"#x22\" Enable=\"1\">MBoxIn</Sm>\n");
+        sb.Append($"        <Sm DefaultSize=\"{Bytes(pdos, false)}\" StartAddress=\"{Hex(o.OutputsStart, 4)}\" ControlByte=\"#x64\" Enable=\"1\">Outputs</Sm>\n");
+        sb.Append($"        <Sm DefaultSize=\"{Bytes(pdos, true)}\" StartAddress=\"{Hex(o.InputsStart, 4)}\" ControlByte=\"#x20\" Enable=\"1\">Inputs</Sm>\n");
+        foreach (var p in pdos.OrderBy(p => p.Tx).ThenBy(p => p.Index))
+        {
+            var tag = p.Tx ? "TxPdo" : "RxPdo";
+            sb.Append($"        <{tag} Fixed=\"1\" Sm=\"{(p.Tx ? 3 : 2)}\">\n");
+            sb.Append($"          <Index>{Hex(p.Index, 4)}</Index>\n          <Name>{X(p.Name)}</Name>\n");
+            foreach (var e in p.Entries)
+            {
+                sb.Append($"          <Entry>\n            <Index>{Hex(p.Source.Index, 4)}</Index>\n            <SubIndex>{e.SubIndex}</SubIndex>\n" +
+                          $"            <BitLen>{e.Bits}</BitLen>\n            <Name>{X(Naming.ScreamingSnake(e.Register.Name))}</Name>\n" +
+                          $"            <DataType>{EsiType(e.DataType)}</DataType>\n          </Entry>\n");
+            }
+            sb.Append($"        </{tag}>\n");
+        }
+        sb.Append("        <Mailbox DataLinkLayer=\"true\">\n");
+        sb.Append("          <CoE SdoInfo=\"true\" PdoAssign=\"true\" PdoConfig=\"false\" CompleteAccess=\"false\" PdoUpload=\"false\"/>\n");
+        sb.Append("        </Mailbox>\n");
+        // the configuration area's first 7 words (ETG.2010): PDI control, the rest the defaults
+        sb.Append($"        <Eeprom>\n          <ByteSize>512</ByteSize>\n          <ConfigData>{o.PdiControl:X2}000000000000000000000000</ConfigData>\n        </Eeprom>\n");
+        sb.Append("      </Device>\n    </Devices>\n  </Descriptions>\n</EtherCATInfo>\n");
         return sb.ToString();
     }
 
