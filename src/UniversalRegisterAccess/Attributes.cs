@@ -36,8 +36,9 @@ public sealed class ModbusRegisterAttribute(Access access) : Attribute
     public int Min { get; init; } = int.MinValue;
     public int Max { get; init; } = int.MinValue;
     // Overrides the auto-picked web-UI display kind ("decimal"/"hex"/"binary"/"bool"/"bool-error"/
-    // "status"/"range"); default is "decimal", except a [ModbusType] bitfield-enum field which defaults
-    // to "binary".
+    // "status"/"range"/"index-rgb565"); default is "decimal", except a [ModbusType] bitfield-enum field
+    // which defaults to "binary". "index-rgb565" (uint only): high word an index, low word an RGB565
+    // colour - the web UI shows an index field and a colour picker.
     public string? Display { get; init; }
     // Holding registers only (Access.ReadWrite); default Output.
     public RegisterKind Kind { get; init; } = RegisterKind.Output;

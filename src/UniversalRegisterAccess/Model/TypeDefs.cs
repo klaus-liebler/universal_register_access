@@ -49,6 +49,14 @@ public sealed class RegisterDef
     public int NodeId { get; set; }
 
     public string Display => DisplayOverride ?? (ValueKind == RegisterValueKind.Bitfield ? "binary" : "decimal");
+
+    /// <summary>A 32-bit command value made of two parts: high word an index (e.g. an LED), low word an
+    /// RGB565 colour (5 bits red, 6 green, 5 blue). Only on a `uint` register.</summary>
+    public const string IndexRgb565Display = "index-rgb565";
+
+    /// <summary>Every web-UI display kind (TsGenerator's RegisterDisplay type).</summary>
+    public static readonly IReadOnlyList<string> DisplayKinds =
+        ["decimal", "hex", "binary", "bool", "bool-error", "status", "range", IndexRgb565Display];
 }
 
 public sealed record RegionDef(string Name, string? Title, IReadOnlyList<RegisterDef> Registers);

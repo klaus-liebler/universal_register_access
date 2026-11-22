@@ -19,7 +19,8 @@ public static class TsGenerator
         sb.Append("export type RegisterBank = \"input\" | \"holding\";\n");
         sb.Append("/** Holding registers: output (default, a level), command (a handshake the firmware answers), parameter. */\n");
         sb.Append("export type RegisterKind = \"output\" | \"command\" | \"parameter\";\n");
-        sb.Append("export type RegisterDisplay = \"decimal\" | \"hex\" | \"binary\" | \"bool\" | \"bool-error\" | \"status\" | \"range\";\n\n");
+        sb.Append("/** index-rgb565: 32 bits, high word an index, low word an RGB565 colour. */\n");
+        sb.Append($"export type RegisterDisplay = {string.Join(" | ", RegisterDef.DisplayKinds.Select(Str))};\n\n");
         sb.Append("export interface RegisterDef {\n");
         sb.Append("    name: string;\n    address: number;\n    bank: RegisterBank;\n    display: RegisterDisplay;\n");
         sb.Append("    description?: string;\n    unit?: string;\n    signed?: boolean;\n    gpio?: string;\n");

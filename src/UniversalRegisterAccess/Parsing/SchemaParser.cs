@@ -215,6 +215,14 @@ public static class SchemaParser
             IdentifierNameSyntax id => ResolveNamedFieldType(id.Identifier.Text, fieldLabel, resolveBitfield, resolveStruct),
             _ => throw new SchemaException($"{fieldLabel}: nicht unterstuetzter Feldtyp \"{type}\" (gueltig: ushort/short/uint/int, ein [ModbusType]-Enum, oder ein [ModbusType]-Struct)."),
         };
+        if (display is not null && !RegisterDef.DisplayKinds.Contains(display))
+        {
+            throw new SchemaException($"{fieldLabel}: unbekannte Anzeigeart Display = \"{display}\" (gueltig: {string.Join(", ", RegisterDef.DisplayKinds)}).");
+        }
+        if (display == RegisterDef.IndexRgb565Display && valueKind != RegisterValueKind.UInt32)
+        {
+            throw new SchemaException($"{fieldLabel}: Display = \"{RegisterDef.IndexRgb565Display}\" verlangt ein \"uint\" (hohes Wort Index, niedriges Wort RGB565).");
+        }
 
         return new RegisterDef
         {
