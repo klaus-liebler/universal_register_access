@@ -28,7 +28,8 @@ public static class SchemaCompiler
     /// <summary>Like <see cref="Generate"/>, but also writes the three results to disk (creating
     /// parent directories as needed). <paramref name="markdownOutputFilePath"/> optionally adds the
     /// Markdown register overview.</summary>
-    public static void Compile(IReadOnlyList<string> sourceFiles, string opcUaRootName, string registerMapCppOutputFilePath, string tsOutputFilePath, string opcUaCppOutputFilePath, string? markdownOutputFilePath = null)
+    public static void Compile(IReadOnlyList<string> sourceFiles, string opcUaRootName, string registerMapCppOutputFilePath, string tsOutputFilePath, string opcUaCppOutputFilePath, string? markdownOutputFilePath = null,
+                               EtherCatOptions? etherCat = null, string? etherCatCppOutputFilePath = null)
     {
         var regions = SchemaParser.Parse(sourceFiles);
         AddressAssignment.Assign(regions);
@@ -36,6 +37,8 @@ public static class SchemaCompiler
         WriteFile(tsOutputFilePath, TsGenerator.Generate(regions));
         WriteFile(opcUaCppOutputFilePath, OpcUaGenerator.Generate(regions, opcUaRootName));
         if (markdownOutputFilePath is not null) WriteFile(markdownOutputFilePath, MarkdownGenerator.Generate(regions));
+        // EtherCAT (opt-in): the CoE object dictionary for rtoos (register_map_ethercat.hpp)
+        if (etherCat is not null && etherCatCppOutputFilePath is not null) WriteFile(etherCatCppOutputFilePath, EtherCatGenerator.Generate(regions, etherCat));
     }
 
     private static void WriteFile(string path, string content)
